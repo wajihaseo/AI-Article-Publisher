@@ -11,6 +11,17 @@ const PORT = 3000;
 
 app.use(express.json({ limit: "10mb" }));
 
+// Enable CORS and handle preflight requests
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // In-memory WordPress Sandbox Database for testing & verification without a live server
 interface SandboxPost {
   id: number;
@@ -595,8 +606,8 @@ app.post("/api/ai/test-key", async (req: Request, res: Response) => {
   }
 });
 
-// Helper: Multi-AI Article Generation Dispatcher
-app.post("/api/ai/generate-article", async (req: Request, res: Response) => {
+// Helper: Multi-AI Article Generation Dispatcher (Aliased for seamless routing)
+app.post(["/api/ai/generate-article", "/api/generate-article", "/api/ai/generate", "/api/article/generate"], async (req: Request, res: Response) => {
   const {
     keyword,
     provider = "gemini",
@@ -859,7 +870,7 @@ CRITICAL ANTI-FILLER & QUALITY RULES:
 });
 
 // Helper: AI Featured Image Generation (DALL-E 3, Gemini, or Vector Card)
-app.post("/api/ai/generate-image", async (req: Request, res: Response) => {
+app.post(["/api/ai/generate-image", "/api/generate-image"], async (req: Request, res: Response) => {
   const {
     title = "Featured Article Guide",
     keyword = "SEO Strategy",
