@@ -53,6 +53,7 @@ export const DirectArticleWriter: React.FC<DirectArticleWriterProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStep, setGenerationStep] = useState<string>('');
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generationWarning, setGenerationWarning] = useState<string | null>(null);
   const [article, setArticle] = useState<Article | null>(null);
 
   // Editor view
@@ -73,6 +74,7 @@ export const DirectArticleWriter: React.FC<DirectArticleWriterProps> = ({
     setArticle(null);
     setPublishResult(null);
     setGenerationError(null);
+    setGenerationWarning(null);
 
     try {
       setGenerationStep(`Connecting to ${selectedProvider.toUpperCase()} AI engine...`);
@@ -206,6 +208,34 @@ export const DirectArticleWriter: React.FC<DirectArticleWriterProps> = ({
         };
       }
 
+      if (data.providerWarning) {
+        setGenerationWarning(data.providerWarning);
+      }
+
+      // Generate featured image simultaneously so the studio is immediately populated
+      let initialFeaturedImageUrl = '';
+      try {
+        const imgRes = await fetch('/api/ai/generate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: data.title,
+            keyword: keyword.trim(),
+            provider: 'auto',
+            apiKey: apiKeys.openai || '',
+            brandText: 'ARSLAN SEO'
+          })
+        });
+        if (imgRes.ok) {
+          const imgData = await imgRes.json();
+          if (imgData.imageUrl) {
+            initialFeaturedImageUrl = imgData.imageUrl;
+          }
+        }
+      } catch (imgErr) {
+        console.warn('Initial image generation error:', imgErr);
+      }
+
       const builtArticle: Article = {
         id: 'art-' + Math.random().toString(36).substring(2, 9),
         keyword: keyword.trim(),
@@ -220,6 +250,7 @@ export const DirectArticleWriter: React.FC<DirectArticleWriterProps> = ({
         relatedKeywords: data.relatedKeywords || [],
         imageAltText: data.imageAltText || `${keyword} overview`,
         imagePrompt: data.imagePrompt || '',
+        featuredImageUrl: initialFeaturedImageUrl || undefined,
         searchIntent: data.searchIntent || 'Informational',
         wordCount: data.wordCount || wordCount,
         readingTime: data.readingTime || Math.ceil(wordCount / 220),
@@ -527,6 +558,42 @@ export const DirectArticleWriter: React.FC<DirectArticleWriterProps> = ({
               type="button"
               onClick={() => setGenerationError(null)}
               className="text-rose-400 hover:text-rose-600 font-bold px-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Warning / Fallback Notice Banner */}
+        {generationWarning && (
+          <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-start justify-between gap-3 text-xs text-amber-950 shadow-xs">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-amber-900">API Key Notice: Fallback Engine Applied</span>
+                <p className="text-amber-800 mt-0.5 leading-relaxed">{generationWarning}</p>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={onOpenApiAdmin}
+                    className="px-2.5 py-1 bg-white border border-amber-300 rounded font-semibold text-amber-900 hover:bg-amber-100 cursor-pointer"
+                  >
+                    Open Admin API Settings
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGenerationWarning(null)}
+                    className="px-2.5 py-1 bg-amber-600 text-white rounded font-semibold hover:bg-amber-700 cursor-pointer"
+                  >
+                    Dismiss Notice
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setGenerationWarning(null)}
+              className="text-amber-500 hover:text-amber-800 font-bold px-1 cursor-pointer"
             >
               ✕
             </button>

@@ -520,12 +520,24 @@ app.post("/api/ai/test-key", async (req: Request, res: Response) => {
 
   try {
     if (provider === "gemini") {
-      const testAI = new GoogleGenAI({ apiKey: cleanKey });
-      const response = await testAI.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: "Say 'OK' in one word."
-      });
-      return res.json({ valid: true, model: "Gemini 2.5 Flash", response: response.text?.trim() });
+      try {
+        const testAI = new GoogleGenAI({ apiKey: cleanKey });
+        const response = await testAI.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: "Respond with the word: OK"
+        });
+        return res.json({ valid: true, model: "Google Gemini 2.5 Flash", response: response.text?.trim() });
+      } catch (gemErr: any) {
+        let msg = gemErr?.message || "Gemini authentication failed";
+        try {
+          const parsed = JSON.parse(msg);
+          if (parsed?.error?.message) msg = parsed.error.message;
+        } catch {}
+        if (msg.includes("API_KEY_INVALID") || msg.includes("API key not valid")) {
+          msg = "API key not valid. Verify you copied the key from Google AI Studio (aistudio.google.com).";
+        }
+        return res.json({ valid: false, error: msg });
+      }
     }
 
     if (provider === "openai") {
@@ -533,10 +545,17 @@ app.post("/api/ai/test-key", async (req: Request, res: Response) => {
         headers: { "Authorization": `Bearer ${cleanKey}` }
       });
       if (response.ok) {
-        return res.json({ valid: true, model: "OpenAI GPT-4o / DALL-E 3" });
+        return res.json({ valid: true, model: "OpenAI GPT-4o / GPT-4o-mini / DALL-E 3" });
       }
       const err = await response.json().catch(() => ({}));
-      return res.json({ valid: false, error: err?.error?.message || `HTTP ${response.status} Authentication Failed` });
+      const code = err?.error?.code || "";
+      let errorMsg = err?.error?.message || `HTTP ${response.status} Authentication Failed`;
+      if (code === "insufficient_quota" || errorMsg.includes("quota")) {
+        errorMsg = "OpenAI Quota Exceeded ($0 balance). Please add credits to your OpenAI account at platform.openai.com/billing.";
+      } else if (code === "invalid_api_key" || errorMsg.includes("Incorrect API key")) {
+        errorMsg = "Incorrect OpenAI API key. Check that your key begins with 'sk-' and has no spaces.";
+      }
+      return res.json({ valid: false, error: errorMsg });
     }
 
     if (provider === "claude") {
@@ -659,45 +678,123 @@ CRITICAL ANTI-FILLER & QUALITY RULES:
 }`;
 
   let parsedArticle: any = null;
-  let providerUsedName = "Gemini 2.5 Flash";
+  let providerUsedName = "AI Editorial Engine";
+  let providerWarning: string | null = null;
 
-  // 1. OpenAI / ChatGPT
-  if (requestedProvider === "openai" && apiKeys.openai) {
+  // Helper to safely parse JSON from AI outputs
+  const extractJson = (str: string) => {
     try {
-      const openAiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKeys.openai.trim()}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          temperature: 0.7,
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: systemInstructions },
-            { role: "user", content: `Write the complete SEO article for target keyword: "${cleanKw}"` }
-          ]
-        })
-      });
+      return JSON.parse(str);
+    } catch {
+      const match = str.match(/\{[\s\S]*\}/);
+      if (match) {
+        return JSON.parse(match[0]);
+      }
+      throw new Error("Could not parse JSON from model output");
+    }
+  };
 
-      if (openAiRes.ok) {
-        const data = await openAiRes.json();
-        const contentStr = data.choices?.[0]?.message?.content;
-        if (contentStr) {
-          parsedArticle = JSON.parse(contentStr);
-          providerUsedName = "ChatGPT (OpenAI GPT-4o)";
+  // 1. If Google Gemini is requested (or default)
+  if (requestedProvider === "gemini") {
+    const userGeminiKey = apiKeys.gemini?.trim();
+    if (userGeminiKey) {
+      try {
+        const geminiClient = new GoogleGenAI({ apiKey: userGeminiKey });
+        const response = await geminiClient.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: `${systemInstructions}\n\nTask: Generate the complete SEO article for: "${cleanKw}". You must respond in valid JSON.`,
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+
+        if (response.text) {
+          parsedArticle = extractJson(response.text);
+          providerUsedName = "Google Gemini 2.5 Flash (Custom Key)";
+        }
+      } catch (err: any) {
+        let msg = err?.message || "Gemini authentication failed";
+        try {
+          const p = JSON.parse(msg);
+          if (p?.error?.message) msg = p.error.message;
+        } catch {}
+        providerWarning = `Gemini API key note: ${msg.slice(0, 140)}. Switched to AI Publisher Engine.`;
+        console.warn("Gemini user key error:", msg);
+      }
+    } else {
+      // Check server built-in Gemini
+      const serverAI = getAI();
+      if (serverAI) {
+        try {
+          const response = await serverAI.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `${systemInstructions}\n\nTask: Generate the complete SEO article for: "${cleanKw}". You must respond in valid JSON.`,
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+          if (response.text) {
+            parsedArticle = extractJson(response.text);
+            providerUsedName = "Google Gemini 2.5 Flash (Server)";
+          }
+        } catch (serverErr: any) {
+          console.warn("Server Gemini error:", serverErr?.message);
         }
       } else {
-        const errText = await openAiRes.text();
-        console.warn("OpenAI API call failed, falling back:", errText);
+        providerWarning = "No Gemini API key provided. Open Admin API Settings to paste your Gemini key.";
       }
-    } catch (e: any) {
-      console.warn("OpenAI fetch error:", e?.message);
     }
   }
 
-  // 2. Anthropic Claude
+  // 2. If OpenAI / ChatGPT is requested
+  if (!parsedArticle && requestedProvider === "openai") {
+    const openAiKey = apiKeys.openai?.trim();
+    if (openAiKey) {
+      try {
+        const openAiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openAiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            temperature: 0.7,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: systemInstructions },
+              { role: "user", content: `Write the complete SEO article for target keyword: "${cleanKw}". Output valid JSON.` }
+            ]
+          })
+        });
+
+        if (openAiRes.ok) {
+          const data = await openAiRes.json();
+          const contentStr = data.choices?.[0]?.message?.content;
+          if (contentStr) {
+            parsedArticle = extractJson(contentStr);
+            providerUsedName = "ChatGPT (OpenAI GPT-4o-mini)";
+          }
+        } else {
+          const errData = await openAiRes.json().catch(() => ({}));
+          const code = errData?.error?.code || "";
+          let errDetail = errData?.error?.message || `HTTP ${openAiRes.status}`;
+          if (code === "insufficient_quota" || errDetail.includes("quota")) {
+            errDetail = "OpenAI Quota Exceeded ($0 balance on your account). Please add billing credits at platform.openai.com/billing.";
+          }
+          providerWarning = `OpenAI notice: ${errDetail}. Switched to fallback engine.`;
+          console.warn("OpenAI API call failed:", errDetail);
+        }
+      } catch (e: any) {
+        providerWarning = `OpenAI connection failed: ${e?.message || "Network error"}`;
+        console.warn("OpenAI fetch error:", e?.message);
+      }
+    } else {
+      providerWarning = "No OpenAI API key provided. Open Admin API Settings to add your OpenAI key.";
+    }
+  }
+
+  // 3. If Anthropic Claude is requested
   if (!parsedArticle && requestedProvider === "claude" && apiKeys.claude) {
     try {
       const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -720,18 +817,15 @@ CRITICAL ANTI-FILLER & QUALITY RULES:
       if (claudeRes.ok) {
         const data = await claudeRes.json();
         const rawText = data.content?.[0]?.text || "";
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsedArticle = JSON.parse(jsonMatch[0]);
-          providerUsedName = "Anthropic Claude 3.5 Sonnet";
-        }
+        parsedArticle = extractJson(rawText);
+        providerUsedName = "Anthropic Claude 3.5 Sonnet";
       }
     } catch (e: any) {
       console.warn("Claude fetch error:", e?.message);
     }
   }
 
-  // 3. DeepSeek
+  // 4. If DeepSeek is requested
   if (!parsedArticle && requestedProvider === "deepseek" && apiKeys.deepseek) {
     try {
       const deepseekRes = await fetch("https://api.deepseek.com/chat/completions", {
@@ -755,7 +849,7 @@ CRITICAL ANTI-FILLER & QUALITY RULES:
         const data = await deepseekRes.json();
         const contentStr = data.choices?.[0]?.message?.content;
         if (contentStr) {
-          parsedArticle = JSON.parse(contentStr);
+          parsedArticle = extractJson(contentStr);
           providerUsedName = "DeepSeek V3";
         }
       }
@@ -764,7 +858,7 @@ CRITICAL ANTI-FILLER & QUALITY RULES:
     }
   }
 
-  // 4. Perplexity (Web Research Citations + Deep Synthesis)
+  // 5. If Perplexity is requested
   if (!parsedArticle && requestedProvider === "perplexity" && apiKeys.perplexity) {
     try {
       const pplxRes = await fetch("https://api.perplexity.ai/chat/completions", {
@@ -786,42 +880,58 @@ CRITICAL ANTI-FILLER & QUALITY RULES:
       if (pplxRes.ok) {
         const data = await pplxRes.json();
         const contentStr = data.choices?.[0]?.message?.content || "";
-        const jsonMatch = contentStr.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsedArticle = JSON.parse(jsonMatch[0]);
-          providerUsedName = "Perplexity Sonar (Live Web Research)";
-        }
+        parsedArticle = extractJson(contentStr);
+        providerUsedName = "Perplexity Sonar (Live Web Research)";
       }
     } catch (e: any) {
       console.warn("Perplexity fetch error:", e?.message);
     }
   }
 
-  // 5. Google Gemini (Native SDK with user key or server key)
-  if (!parsedArticle) {
-    const userGeminiKey = apiKeys.gemini?.trim();
-    const geminiClient = userGeminiKey
-      ? new GoogleGenAI({ apiKey: userGeminiKey })
-      : getAI();
-
-    if (geminiClient) {
-      try {
-        const response = await geminiClient.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: `${systemInstructions}\n\nTask: Generate the complete SEO article for: "${cleanKw}".`,
-          config: {
-            responseMimeType: "application/json"
-          }
-        });
-
-        if (response.text) {
-          parsedArticle = JSON.parse(response.text);
-          providerUsedName = userGeminiKey ? "Google Gemini (Custom Key)" : "Google Gemini 2.5 Flash";
-        }
-      } catch (err: any) {
-        console.warn("Gemini generation error:", err?.message);
+  // 6. Secondary Cross-Provider Fallback: If primary failed but user has Gemini key
+  if (!parsedArticle && apiKeys.gemini?.trim()) {
+    try {
+      const geminiClient = new GoogleGenAI({ apiKey: apiKeys.gemini.trim() });
+      const response = await geminiClient.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: `${systemInstructions}\n\nTask: Generate the complete SEO article for: "${cleanKw}". You must respond in valid JSON.`,
+        config: { responseMimeType: "application/json" }
+      });
+      if (response.text) {
+        parsedArticle = extractJson(response.text);
+        providerUsedName = "Google Gemini 2.5 Flash (Fallback Key)";
       }
-    }
+    } catch (e) {}
+  }
+
+  // 7. Secondary Cross-Provider Fallback: If user has OpenAI key
+  if (!parsedArticle && apiKeys.openai?.trim()) {
+    try {
+      const openAiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKeys.openai.trim()}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0.7,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemInstructions },
+            { role: "user", content: `Write the complete SEO article for: "${cleanKw}". Output JSON.` }
+          ]
+        })
+      });
+      if (openAiRes.ok) {
+        const data = await openAiRes.json();
+        const contentStr = data.choices?.[0]?.message?.content;
+        if (contentStr) {
+          parsedArticle = extractJson(contentStr);
+          providerUsedName = "ChatGPT (OpenAI Fallback)";
+        }
+      }
+    } catch (e) {}
   }
 
   // Fallback if all external networks fail
@@ -865,7 +975,8 @@ CRITICAL ANTI-FILLER & QUALITY RULES:
     ...parsedArticle,
     wordCount,
     readingTime,
-    providerUsed: providerUsedName
+    providerUsed: providerUsedName,
+    providerWarning
   });
 });
 

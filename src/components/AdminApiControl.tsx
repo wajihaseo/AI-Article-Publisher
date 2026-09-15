@@ -41,19 +41,22 @@ export const AdminApiControl: React.FC<AdminApiControlProps> = ({
   };
 
   const handleKeyChange = (provider: keyof ApiKeysConfig, val: string) => {
+    // Strip leading/trailing spaces and newlines commonly introduced during copy/paste
+    const cleanVal = val.trim();
     setApiKeys(prev => {
-      const updated = { ...prev, [provider]: val };
+      const updated = { ...prev, [provider]: cleanVal };
       localStorage.setItem('ai_publisher_api_keys', JSON.stringify(updated));
       return updated;
     });
   };
 
   const testApiKey = async (provider: string, keyVal?: string) => {
-    const key = keyVal || apiKeys[provider as keyof ApiKeysConfig];
+    const rawKey = keyVal || apiKeys[provider as keyof ApiKeysConfig];
+    const key = rawKey?.trim();
     if (!key) {
       setTestResults(prev => ({
         ...prev,
-        [provider]: { valid: false, message: 'Please enter an API key first.' }
+        [provider]: { valid: false, message: 'Please enter an API key first before testing.' }
       }));
       return;
     }
@@ -70,12 +73,12 @@ export const AdminApiControl: React.FC<AdminApiControlProps> = ({
       if (res.ok && data.valid) {
         setTestResults(prev => ({
           ...prev,
-          [provider]: { valid: true, message: `Connected: ${data.model || 'Verified'}` }
+          [provider]: { valid: true, message: `Connected: ${data.model || 'Verified & Active'}` }
         }));
       } else {
         setTestResults(prev => ({
           ...prev,
-          [provider]: { valid: false, message: data.error || 'Verification failed.' }
+          [provider]: { valid: false, message: data.error || 'Verification failed. Please check key validity.' }
         }));
       }
     } catch (err: any) {
