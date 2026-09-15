@@ -1,20 +1,43 @@
 import React, { useState, useEffect } from 'react';
-import { Navbar } from './components/Navbar';
+import { Navbar, AppNavTab } from './components/Navbar';
+import { DirectArticleWriter } from './components/DirectArticleWriter';
 import { ArticleGenerator } from './components/ArticleGenerator';
 import { BatchProcessing } from './components/BatchProcessing';
 import { ScheduleCalendar } from './components/ScheduleCalendar';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { WebsitesManager } from './components/WebsitesManager';
+import { AdminApiControl } from './components/AdminApiControl';
 import { INITIAL_SITES, INITIAL_ARTICLES, INITIAL_AUDIT_LOGS } from './mockData';
-import { WordPressSite, Article, AuditLogEntry, NavigationTab } from './types';
+import { WordPressSite, Article, AuditLogEntry, NavigationTab, ApiKeysConfig, AiProvider } from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<NavigationTab>('workflow');
+  const [activeTab, setActiveTab] = useState<AppNavTab>('writer');
   const [sites, setSites] = useState<WordPressSite[]>(INITIAL_SITES);
   const [selectedSiteId, setSelectedSiteId] = useState<string>(INITIAL_SITES[0]?.id || '');
   const [articles, setArticles] = useState<Article[]>(INITIAL_ARTICLES);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(INITIAL_AUDIT_LOGS);
   const [editingArticle, setEditingArticle] = useState<Article | null>(null);
+
+  // Admin API Keys State & LocalStorage persistence
+  const [apiKeys, setApiKeys] = useState<ApiKeysConfig>(() => {
+    try {
+      const saved = localStorage.getItem('ai_publisher_api_keys');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [defaultProvider, setDefaultProvider] = useState<AiProvider>(() => {
+    try {
+      const saved = localStorage.getItem('ai_publisher_default_provider');
+      return (saved as AiProvider) || 'gemini';
+    } catch {
+      return 'gemini';
+    }
+  });
+
+  const [isAdminApiOpen, setIsAdminApiOpen] = useState(false);
 
   // Fetch initial audit logs from server if available
   const fetchAuditLogs = async () => {
@@ -89,21 +112,51 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-100/60 text-stone-900 font-sans flex flex-col selection:bg-stone-900 selection:text-white">
+      
       {/* Top Navigation */}
       <Navbar
-        activeTab={activeTab}
-        setActiveTab={(tab) => {
+        currentTab={activeTab}
+        setCurrentTab={(tab) => {
           if (tab !== 'workflow') setEditingArticle(null);
           setActiveTab(tab);
         }}
         sites={sites}
         selectedSiteId={selectedSiteId}
         setSelectedSiteId={setSelectedSiteId}
-        scheduledCount={articles.filter(a => a.publishStatus === 'scheduled').length}
+        onNewArticle={() => {
+          setEditingArticle(null);
+          setActiveTab('writer');
+        }}
+        onOpenApiAdmin={() => setIsAdminApiOpen(true)}
+        apiKeys={apiKeys}
+      />
+
+      {/* Admin API Keys Modal */}
+      <AdminApiControl
+        apiKeys={apiKeys}
+        setApiKeys={setApiKeys}
+        defaultProvider={defaultProvider}
+        setDefaultProvider={setDefaultProvider}
+        isOpen={isAdminApiOpen}
+        onClose={() => setIsAdminApiOpen(false)}
       />
 
       {/* Main Content Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        {/* Tab 1: Direct Article Writer (Primary request) */}
+        {activeTab === 'writer' && (
+          <DirectArticleWriter
+            sites={sites}
+            selectedSiteId={selectedSiteId}
+            apiKeys={apiKeys}
+            defaultProvider={defaultProvider}
+            onOpenApiAdmin={() => setIsAdminApiOpen(true)}
+            onArticlePublished={handleArticlePublished}
+          />
+        )}
+
+        {/* Tab 2: 7-Step SEO Studio Deep Workflow */}
         {activeTab === 'workflow' && (
           <ArticleGenerator
             sites={sites}
@@ -113,6 +166,7 @@ export default function App() {
           />
         )}
 
+        {/* Tab 3: Batch Processing */}
         {activeTab === 'batch' && (
           <BatchProcessing
             sites={sites}
@@ -122,6 +176,7 @@ export default function App() {
           />
         )}
 
+        {/* Tab 4: Schedule Queue & Calendar */}
         {activeTab === 'calendar' && (
           <ScheduleCalendar
             articles={articles}
@@ -131,6 +186,7 @@ export default function App() {
           />
         )}
 
+        {/* Tab 5: Analytics & Audit Logs */}
         {activeTab === 'analytics' && (
           <AnalyticsDashboard
             articles={articles}
@@ -140,6 +196,7 @@ export default function App() {
           />
         )}
 
+        {/* Tab 6: Connected WordPress Sites Manager */}
         {activeTab === 'websites' && (
           <WebsitesManager
             sites={sites}
@@ -150,18 +207,18 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer */}
+      {/* Global Footer */}
       <footer className="border-t border-stone-200 bg-white py-4 mt-auto text-xs text-stone-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center space-x-2">
             <span className="font-semibold text-stone-700">AI Article Publisher</span>
             <span>•</span>
-            <span>WordPress REST API Integration</span>
+            <span className="text-stone-600">Multi-AI Connected (Gemini, ChatGPT, Claude, DeepSeek, Perplexity)</span>
             <span>•</span>
-            <span className="text-emerald-700 font-medium">Zero Silent Failures Protocol</span>
+            <span className="text-emerald-700 font-medium">Watermark Studio &amp; Verified WordPress Sync</span>
           </div>
           <div className="text-[11px] text-stone-400">
-            Automated SEO Research → Semantic H2/H3 Drafting → Programmatic Audit → Verified Direct Posting
+            Keyword → Intent Research → Comprehensive SEO Article → Branded Asset → Direct Sync
           </div>
         </div>
       </footer>

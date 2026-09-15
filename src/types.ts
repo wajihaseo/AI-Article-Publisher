@@ -2,7 +2,7 @@ export type SearchIntent = 'Informational' | 'Commercial' | 'Transactional' | 'N
 
 export type PublishStatus = 'draft' | 'scheduled' | 'published' | 'failed';
 
-export type NavigationTab = 'workflow' | 'batch' | 'calendar' | 'analytics' | 'websites';
+export type NavigationTab = 'writer' | 'workflow' | 'batch' | 'calendar' | 'analytics' | 'websites';
 
 export interface WordPressSite {
   id: string;
@@ -89,6 +89,9 @@ export interface Article {
   imageAltText: string;
   imagePrompt: string;
   imageUrl?: string;
+  featuredImageUrl?: string;
+  watermarkedImageUrl?: string;
+  providerUsed?: string;
   searchIntent: SearchIntent;
   wordCount: number;
   readingTime: number;
@@ -102,6 +105,27 @@ export interface Article {
   lastError?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type AiProvider = 'gemini' | 'openai' | 'claude' | 'deepseek' | 'perplexity' | 'ensemble';
+
+export interface ApiKeysConfig {
+  gemini?: string;
+  openai?: string;
+  claude?: string;
+  deepseek?: string;
+  perplexity?: string;
+}
+
+export interface WatermarkConfig {
+  enabled: boolean;
+  brandText: string;
+  logoUrl?: string;
+  position: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'center';
+  opacity: number;
+  fontSize: number;
+  badgeBackground: boolean;
+  textColor: string;
 }
 
 export interface ContentParameters {
