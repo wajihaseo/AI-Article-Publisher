@@ -123,7 +123,7 @@ export const FeaturedImageStudio: React.FC<FeaturedImageStudioProps> = ({
   const [currentBaseImage, setCurrentBaseImage] = useState<string>(imageUrl || initialClientBanner);
   const [watermarkedDataUrl, setWatermarkedDataUrl] = useState<string>(imageUrl || initialClientBanner);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generationProvider, setGenerationProvider] = useState<'auto' | 'openai'>('auto');
+  const [generationProvider, setGenerationProvider] = useState<'auto' | 'gemini' | 'openai' | 'photo'>('auto');
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -155,18 +155,30 @@ export const FeaturedImageStudio: React.FC<FeaturedImageStudioProps> = ({
     setIsGenerating(true);
     setStatusNotice(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     try {
+      const activeKey = generationProvider === 'openai' 
+        ? (apiKeys.openai || '') 
+        : generationProvider === 'gemini' 
+          ? (apiKeys.gemini || '') 
+          : (apiKeys.openai || apiKeys.gemini || '');
+
       const res = await fetch('/api/ai/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           title,
           keyword,
           provider: generationProvider,
-          apiKey: apiKeys.openai || '',
+          apiKey: activeKey,
           brandText: watermark.brandText
         })
       });
+
+      clearTimeout(timeoutId);
 
       if (res.ok) {
         const data = await res.json();
@@ -186,12 +198,13 @@ export const FeaturedImageStudio: React.FC<FeaturedImageStudioProps> = ({
       onImageUpdated(fallbackBanner);
       setStatusNotice('Generated High-Resolution 1200×630 Editorial Banner');
     } catch (e: any) {
-      console.warn('Image generation error, using client fallback:', e);
+      clearTimeout(timeoutId);
+      console.warn('Image generation notice, using resilient fallback:', e?.name === 'AbortError' ? 'Timeout' : e?.message);
       const fallbackBanner = buildVectorSvgBanner(title, keyword, watermark.brandText);
       setCurrentBaseImage(fallbackBanner);
       setWatermarkedDataUrl(fallbackBanner);
       onImageUpdated(fallbackBanner);
-      setStatusNotice('Generated High-Resolution 1200×630 Editorial Banner');
+      setStatusNotice('Rendered High-Resolution 1200×630 Editorial Banner');
     } finally {
       setIsGenerating(false);
     }
@@ -366,8 +379,10 @@ export const FeaturedImageStudio: React.FC<FeaturedImageStudioProps> = ({
             onChange={(e) => setGenerationProvider(e.target.value as any)}
             className="text-xs px-2.5 py-1.5 rounded-lg border border-stone-300 font-medium focus:outline-none focus:border-stone-900 bg-white"
           >
-            <option value="auto">High-Res Vector (Instant 1200×630)</option>
-            {apiKeys.openai && <option value="openai">OpenAI DALL-E 3 (Requires OpenAI Key)</option>}
+            <option value="auto">High-Res Vector Card (Instant 1200×630)</option>
+            <option value="photo">Curated HD Editorial Photo</option>
+            <option value="gemini">Google Imagen 3 (Gemini Key)</option>
+            <option value="openai">OpenAI DALL-E 3 (OpenAI Key)</option>
           </select>
 
           <button

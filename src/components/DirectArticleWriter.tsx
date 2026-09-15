@@ -215,17 +215,21 @@ export const DirectArticleWriter: React.FC<DirectArticleWriterProps> = ({
       // Generate featured image simultaneously so the studio is immediately populated
       let initialFeaturedImageUrl = '';
       try {
+        const imgController = new AbortController();
+        const imgTimeout = setTimeout(() => imgController.abort(), 4000);
         const imgRes = await fetch('/api/ai/generate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: imgController.signal,
           body: JSON.stringify({
             title: data.title,
             keyword: keyword.trim(),
-            provider: 'auto',
-            apiKey: apiKeys.openai || '',
+            provider: selectedProvider === 'openai' ? 'openai' : (selectedProvider === 'gemini' ? 'gemini' : 'auto'),
+            apiKey: selectedProvider === 'openai' ? (apiKeys.openai || '') : (apiKeys.gemini || apiKeys.openai || ''),
             brandText: 'ARSLAN SEO'
           })
         });
+        clearTimeout(imgTimeout);
         if (imgRes.ok) {
           const imgData = await imgRes.json();
           if (imgData.imageUrl) {
@@ -233,7 +237,7 @@ export const DirectArticleWriter: React.FC<DirectArticleWriterProps> = ({
           }
         }
       } catch (imgErr) {
-        console.warn('Initial image generation error:', imgErr);
+        console.warn('Initial image generation notice:', imgErr);
       }
 
       const builtArticle: Article = {
